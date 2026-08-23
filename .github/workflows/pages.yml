@@ -8,13 +8,13 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
 concurrency:
   group: pages
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   deploy:
@@ -53,3 +53,21 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Record Pages deployment status
+        if: always()
+        shell: bash
+        env:
+          DEPLOY_STATUS: ${{ job.status }}
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git fetch origin ci-status
+          git worktree add /tmp/ci-status origin/ci-status
+          printf '{"sha":"%s","run_id":"%s","deploy":"%s","page_url":"%s"}\n' \
+            "$GITHUB_SHA" "$GITHUB_RUN_ID" "$DEPLOY_STATUS" "$PAGE_URL" \
+            > /tmp/ci-status/ci-status.json
+          git -C /tmp/ci-status add ci-status.json
+          git -C /tmp/ci-status commit -m "Record Pages status ${GITHUB_RUN_ID}" || true
+          git -C /tmp/ci-status push origin HEAD:ci-status
