@@ -1,0 +1,8 @@
+services:
+  repository-universe:
+    build: .
+    ports:
+      - "8080:80"
+    volumes:
+      - ./out:/usr/share/nginx/html/data:ro
+    restart: unless-stopped
