@@ -1,47 +1,36 @@
-# GitHub → Cosmograph
+# Repository Universe
 
-Build a Cosmograph network of the GitHub repositories owned by `godofecht` plus repositories in `flooooooooooow`.
+A self-hosted GPU graph of the GitHub repositories owned by `godofecht` plus the `flooooooooooow` organization, rendered with the Cosmograph JavaScript library.
 
-The generated graph is intentionally local-only. `out/` is gitignored because it can contain metadata for private repositories.
+The public GitHub Pages build contains **public repositories only**. Private repository metadata never needs to leave your machine: generate it locally and the exact same UI can load it from `out/` or from files you select in the browser.
 
-## Generate
+## Private local graph
 
-Authenticate GitHub CLI once:
+Authenticate once, generate the full graph, and serve the repo root:
 
 ```sh
 gh auth login
+python3 generate.py
+python3 -m http.server 8080
 ```
 
-Then run:
+Open `http://localhost:8080/site/` and press **Load private local**. You can also press **Open CSVs** and choose `out/nodes.csv` plus `out/links.csv` directly. The browser does not upload those files anywhere.
+
+## Public graph
 
 ```sh
-python3 generate.py
+python3 generate.py --public-only --out site/data
+python3 -m http.server 8080 --directory site
 ```
 
-Alternatively, set `GH_TOKEN` or `GITHUB_TOKEN`. The token only needs read access to repository metadata for the repositories you want included.
+Public-only generation does not require authentication. GitHub Actions uses this mode every day and on every push to rebuild the GitHub Pages graph without exposing private repositories.
 
-Output:
+## UI
 
-```text
-out/nodes.csv
-out/links.csv
-out/metadata.json
-```
+The explorer provides GPU force layout, domain coloring, repository-size weighting, search, domain/language/visibility filters, fork/archive filtering, focus-and-fit navigation, and a repository inspector with direct GitHub links.
 
-Use `python3 generate.py --public-only` for a share-safe graph containing only public repositories. Add another organization with `--org NAME`.
+## Data model
 
-## Open in Cosmograph
+Every repository is a point. Owner and inferred-domain hubs establish the large-scale topology. Repositories receive sparse direct similarity edges when their names share distinctive tokens. The CSVs retain visibility, fork/archive state, language, GitHub URL, description, update timestamp, repository size, and Cosmograph's ordinal indices.
 
-Open [Cosmograph](https://cosmograph.app/), create **New graph**, and add both CSV files in **Data Sources**.
-
-For the points table (`nodes.csv`), map the unique point ID to `id`. Use `label` for labels, `color` for point color, and `visual_size` for point size.
-
-For the links table (`links.csv`), map source to `source` and target to `target`. The files also contain `index`, `source_index`, and `target_index` so they are directly usable by Cosmograph's indexed library API if needed.
-
-`cosmograph-config.json` contains the equivalent Cosmograph Data Kit mapping for programmatic use.
-
-## Graph model
-
-Every repository is a point. Owner and inferred-domain hubs give the force layout stable high-level structure. Repositories also receive a small number of direct similarity links when their names share distinctive tokens, so related project families naturally cluster without producing an unreadable all-to-all graph.
-
-Repository point size is a log-scaled transform of GitHub's repository size metadata. Public/private, fork/archive state, language, URL, description, and update timestamp remain available as filterable columns.
+Generated private data lives in `out/`, which is gitignored. The Pages workflow builds its public snapshot ephemerally into `_site/data` rather than committing generated data to the repository.
