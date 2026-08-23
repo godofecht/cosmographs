@@ -1,9 +1,10 @@
-import { Cosmograph } from 'https://esm.sh/@cosmograph/cosmograph@2?bundle';
+import { Graph } from '@cosmos.gl/graph';
 
 const DOMAIN_COLORS = {
   'Flow': '#8B5CF6', 'Audio / DSP': '#22D3EE', 'Games / Graphics': '#F59E0B',
   'AI / ML': '#F472B6', 'Research / Science': '#34D399', 'Web / Product': '#60A5FA',
-  'Systems / Tooling': '#94A3B8', 'Creative': '#FB7185', 'Other': '#A3A3A3'
+  'Systems / Tooling': '#94A3B8', 'Creative': '#FB7185', 'Other': '#A3A3A3',
+  'Owner': '#FFFFFF', 'Domain': '#E4E4E7'
 };
 
 const el = (id) => document.getElementById(id);
@@ -18,13 +19,15 @@ const visibilityEl = el('visibility-filter');
 const forkEl = el('fork-filter');
 const archiveEl = el('archive-filter');
 const resultsEl = el('search-results');
+const tooltipEl = el('tooltip');
 
-let cosmograph;
+let graph;
 let allNodes = [];
 let allLinks = [];
 let viewNodes = [];
 let viewLinks = [];
 let sourceName = '';
+let firstRender = true;
 
 function parseCSV(text) {
   const rows = [];
@@ -60,7 +63,13 @@ function coerceNode(n) {
 }
 
 function coerceLink(l) {
-  return { ...l, source_index: Number(l.source_index), target_index: Number(l.target_index), strength: Number(l.strength || .5), width: Number(l.width || .5) };
+  return {
+    ...l,
+    source_index: Number(l.source_index),
+    target_index: Number(l.target_index),
+    strength: Number(l.strength || .5),
+    width: Number(l.width || .5)
+  };
 }
 
 async function fetchText(url) {
@@ -79,10 +88,21 @@ function setData(nodes, links, label) {
   allNodes = nodes;
   allLinks = links;
   sourceName = label;
+  firstRender = true;
   el('source-label').textContent = label;
+  resetControls();
   buildFilters();
   applyFilters();
   loadingEl.hidden = true;
+}
+
+function resetControls() {
+  searchEl.value = '';
+  domainEl.value = '';
+  languageEl.value = '';
+  visibilityEl.value = '';
+  forkEl.checked = false;
+  archiveEl.checked = false;
 }
 
 function buildFilters() {
@@ -127,33 +147,121 @@ function applyFilters() {
 }
 
 function renderGraph() {
-  const config = {
-    points: viewNodes,
-    links: viewLinks,
-    pointIdBy: 'id',
-    pointIndexBy: 'index',
-    pointColorBy: 'color',
-    pointSizeBy: 'visual_size',
-    pointLabelBy: 'label',
-    pointLabelWeightBy: 'label_weight',
-    linkSourceBy: 'source',
-    linkSourceIndexBy: 'source_index',
-    linkTargetBy: 'target',
-    linkTargetIndexBy: 'target_index',
-    linkWidthBy: 'width',
-    backgroundColor: '#08080a',
-    pointGreyoutOpacity: .08,
-    linkGreyoutOpacity: .025,
-    linkWidthScale: .55,
-    simulationRepulsion: .55,
-    simulationGravity: .12,
-    simulationCenter: .15,
-    showFPSMonitor: false,
-    onPointClick: (index) => showInspector(viewNodes[index])
-  };
+  if (!graph) {
+    graph = new Graph(graphEl, {
+      spaceSize: 4096,
+      backgroundColor: '#08080a',
+      pointDefaultSize: 3,
+      pointDefaultColor: '#A3A3A3',
+      pointGreyoutOpacity: .08,
+      scalePointsOnZoom: true,
+      renderLinks: true,
+      linkDefaultWidth: .55,
+      linkDefaultColor: '#52525B',
+      linkOpacity: .34,
+      linkGreyoutOpacity: .025,
+      curvedLinks: true,
+      renderHoveredPointRing: true,
+      hoveredPointRingColor: '#FFFFFF',
+      enableDrag: true,
+      simulationLinkDistance: 5,
+      simulationLinkSpring: 1.1,
+      simulationRepulsion: 1.2,
+      simulationGravity: .04,
+      simulationFriction: .72,
+      simulationCluster: .16,
+      simulationCollision: .7,
+      simulationCollisionPadding: 1.2,
+      simulationDecay: 100000,
+      transitionDuration: 250,
+      attribution: 'GPU graph: <a href="https://github.com/cosmosgl/graph" target="_blank">cosmos.gl</a>',
+      onPointClick: (index) => selectNode(index),
+      onBackgroundClick: () => clearSelection(),
+      onPointMouseOver: (index, _position, event) => showTooltip(index, event),
+      onPointMouseOut: () => hideTooltip()
+    });
+  }
 
-  if (!cosmograph) cosmograph = new Cosmograph(graphEl, config);
-  else cosmograph.setConfig(config);
+  const positions = buildPositions(viewNodes);
+  graph.setPointPositions(positions);
+  graph.setPointColors(buildPointColors(viewNodes));
+  graph.setPointSizes(new Float32Array(viewNodes.map(n => n.kind === 'repo' ? Math.max(2.2, n.visual_size * .72) : n.kind === 'owner' ? 12 : 9)));
+  graph.setPointClusters(buildClusters(viewNodes));
+  graph.setLinks(new Float32Array(viewLinks.flatMap(l => [l.source_index, l.target_index])));
+  graph.setLinkWidths(new Float32Array(viewLinks.map(l => Math.max(.35, l.width * .72))));
+  graph.render(1, firstRender ? 0 : 220);
+  graph.unpause();
+
+  if (firstRender) {
+    firstRender = false;
+    setTimeout(() => graph?.fitView?.(), 700);
+  }
+}
+
+function buildPositions(nodes) {
+  const domains = [...new Set(nodes.map(n => n.kind === 'owner' ? 'Owner' : n.domain))].sort();
+  const centers = new Map(domains.map((domain, i) => {
+    const angle = (i / Math.max(1, domains.length)) * Math.PI * 2;
+    const radius = domains.length > 1 ? 900 : 0;
+    return [domain, [2048 + Math.cos(angle) * radius, 2048 + Math.sin(angle) * radius]];
+  }));
+
+  const out = [];
+  for (const n of nodes) {
+    const key = n.kind === 'owner' ? 'Owner' : n.domain;
+    const [cx, cy] = centers.get(key) || [2048, 2048];
+    const seed = hash(n.id);
+    const angle = ((seed % 10000) / 10000) * Math.PI * 2;
+    const radial = n.kind === 'repo' ? 40 + ((seed >>> 8) % 280) : 0;
+    out.push(cx + Math.cos(angle) * radial, cy + Math.sin(angle) * radial);
+  }
+  return new Float32Array(out);
+}
+
+function buildClusters(nodes) {
+  const names = [...new Set(nodes.map(n => n.kind === 'owner' ? 'Owner' : n.domain))].sort();
+  const id = new Map(names.map((name, i) => [name, i]));
+  return nodes.map(n => id.get(n.kind === 'owner' ? 'Owner' : n.domain) ?? 0);
+}
+
+function buildPointColors(nodes) {
+  const values = [];
+  for (const n of nodes) {
+    const rgba = hexToRgba(n.color || DOMAIN_COLORS[n.domain] || '#A3A3A3');
+    values.push(...rgba);
+  }
+  return new Float32Array(values);
+}
+
+function hexToRgba(hex) {
+  const clean = hex.replace('#', '');
+  const value = Number.parseInt(clean.length === 3 ? clean.split('').map(c => c + c).join('') : clean.slice(0, 6), 16);
+  return [((value >> 16) & 255) / 255, ((value >> 8) & 255) / 255, (value & 255) / 255, 1];
+}
+
+function hash(text) {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+
+function selectNode(index) {
+  const node = viewNodes[index];
+  if (!node) return;
+  const neighbors = graph.getConnectedPointIndices?.([index]) || [];
+  const connectedLinks = graph.getConnectedLinkIndices?.([index]) || [];
+  graph.setConfigPartial({
+    highlightedPointIndices: [index, ...neighbors],
+    outlinedPointIndices: [index],
+    highlightedLinkIndices: connectedLinks
+  });
+  graph.zoomToPointByIndex?.(index);
+  showInspector(node);
+}
+
+function clearSelection() {
+  graph?.setConfigPartial({ highlightedPointIndices: undefined, outlinedPointIndices: undefined, highlightedLinkIndices: undefined });
+  inspectorEl.classList.remove('open');
 }
 
 function updateStats(repos) {
@@ -166,7 +274,7 @@ function updateLegend(repos) {
   const counts = new Map();
   for (const repo of repos) counts.set(repo.domain, (counts.get(repo.domain) || 0) + 1);
   el('legend').innerHTML = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([domain, count]) =>
-    `<div class="legend-row"><i class="legend-dot" style="background:${DOMAIN_COLORS[domain] || '#A3A3A3'}"></i><span>${escapeHtml(domain)}</span><em>${count}</em></div>`
+    `<button class="legend-row" data-domain="${escapeAttr(domain)}"><i class="legend-dot" style="background:${DOMAIN_COLORS[domain] || '#A3A3A3'}"></i><span>${escapeHtml(domain)}</span><em>${count}</em></button>`
   ).join('');
 }
 
@@ -180,10 +288,21 @@ function updateSearchResults(repos) {
 
 function focusNode(id) {
   const index = viewNodes.findIndex(n => n.id === id);
-  if (index < 0 || !cosmograph) return;
-  cosmograph.selectPointByIndex(index, true);
-  cosmograph.fitViewByPointIndices([index], 450, .3, false);
-  showInspector(viewNodes[index]);
+  if (index < 0 || !graph) return;
+  selectNode(index);
+}
+
+function showTooltip(index, event) {
+  const n = viewNodes[index];
+  if (!n || !tooltipEl) return;
+  tooltipEl.innerHTML = `<strong>${escapeHtml(n.label)}</strong><span>${escapeHtml(n.domain)}${n.language ? ` · ${escapeHtml(n.language)}` : ''}</span>`;
+  tooltipEl.style.left = `${Math.min(window.innerWidth - 220, event.clientX + 14)}px`;
+  tooltipEl.style.top = `${Math.min(window.innerHeight - 68, event.clientY + 14)}px`;
+  tooltipEl.hidden = false;
+}
+
+function hideTooltip() {
+  if (tooltipEl) tooltipEl.hidden = true;
 }
 
 function showInspector(n) {
@@ -216,13 +335,19 @@ function escapeAttr(value) { return escapeHtml(value); }
 let filterTimer;
 function scheduleFilter() {
   clearTimeout(filterTimer);
-  filterTimer = setTimeout(applyFilters, 90);
+  filterTimer = setTimeout(applyFilters, 100);
 }
 
 searchEl.addEventListener('input', scheduleFilter);
 [domainEl, languageEl, visibilityEl, forkEl, archiveEl].forEach(x => x.addEventListener('change', applyFilters));
 resultsEl.addEventListener('click', e => { const b = e.target.closest('[data-id]'); if (b) focusNode(b.dataset.id); });
-el('fit-button').addEventListener('click', () => cosmograph?.fitView?.(500));
+el('legend').addEventListener('click', e => {
+  const row = e.target.closest('[data-domain]');
+  if (!row) return;
+  domainEl.value = row.dataset.domain;
+  applyFilters();
+});
+el('fit-button').addEventListener('click', () => graph?.fitView?.());
 
 el('local-button').addEventListener('click', async () => {
   try { await loadFromUrls('../out/nodes.csv', '../out/links.csv', 'private local graph'); }
