@@ -1,0 +1,9 @@
+out
+dist
+site/data
+node_modules
+.git
+.github
+__pycache__
+*.pyc
+.DS_Store
