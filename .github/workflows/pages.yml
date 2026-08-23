@@ -24,16 +24,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
       - uses: actions/configure-pages@v5
-      - name: Build static site
+      - name: Build self-hosted app
         run: |
-          mkdir -p _site
-          cp -R site/. _site/
-          python3 generate.py --public-only --out _site/data
-          touch _site/.nojekyll
+          npm install --no-audit --no-fund
+          npm run build
+          python3 generate.py --public-only --out dist/data
+          touch dist/.nojekyll
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: _site
+          path: dist
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
