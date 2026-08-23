@@ -28,6 +28,8 @@ let viewNodes = [];
 let viewLinks = [];
 let sourceName = '';
 let firstRender = true;
+let pointerX = 0;
+let pointerY = 0;
 
 function parseCSV(text) {
   const rows = [];
@@ -131,6 +133,7 @@ function applyFilters() {
   for (const l of allLinks) {
     if (repoIds.has(l.source) && (l.relation === 'owned-by' || l.relation === 'domain')) hubIds.add(l.target);
   }
+
   const included = new Set([...repoIds, ...hubIds]);
   const selectedNodes = allNodes.filter(n => included.has(n.id));
   const indexById = new Map(selectedNodes.map((n, i) => [n.id, i]));
@@ -163,6 +166,7 @@ function renderGraph() {
       curvedLinks: true,
       renderHoveredPointRing: true,
       hoveredPointRingColor: '#FFFFFF',
+      focusedPointRingColor: '#FFFFFF',
       enableDrag: true,
       simulationLinkDistance: 5,
       simulationLinkSpring: 1.1,
@@ -174,22 +178,21 @@ function renderGraph() {
       simulationCollisionPadding: 1.2,
       simulationDecay: 100000,
       transitionDuration: 250,
-      attribution: 'GPU graph: <a href="https://github.com/cosmosgl/graph" target="_blank">cosmos.gl</a>',
+      attribution: 'GPU graph: <a href="https://github.com/cosmosgl/graph" target="_blank" rel="noreferrer">cosmos.gl</a>',
       onPointClick: (index) => selectNode(index),
       onBackgroundClick: () => clearSelection(),
-      onPointMouseOver: (index, _position, event) => showTooltip(index, event),
+      onPointMouseOver: (index) => showTooltip(index),
       onPointMouseOut: () => hideTooltip()
     });
   }
 
-  const positions = buildPositions(viewNodes);
-  graph.setPointPositions(positions);
+  graph.setPointPositions(buildPositions(viewNodes));
   graph.setPointColors(buildPointColors(viewNodes));
   graph.setPointSizes(new Float32Array(viewNodes.map(n => n.kind === 'repo' ? Math.max(2.2, n.visual_size * .72) : n.kind === 'owner' ? 12 : 9)));
   graph.setPointClusters(buildClusters(viewNodes));
   graph.setLinks(new Float32Array(viewLinks.flatMap(l => [l.source_index, l.target_index])));
   graph.setLinkWidths(new Float32Array(viewLinks.map(l => Math.max(.35, l.width * .72))));
-  graph.render(1, firstRender ? 0 : 220);
+  graph.render();
   graph.unpause();
 
   if (firstRender) {
@@ -226,10 +229,7 @@ function buildClusters(nodes) {
 
 function buildPointColors(nodes) {
   const values = [];
-  for (const n of nodes) {
-    const rgba = hexToRgba(n.color || DOMAIN_COLORS[n.domain] || '#A3A3A3');
-    values.push(...rgba);
-  }
+  for (const n of nodes) values.push(...hexToRgba(n.color || DOMAIN_COLORS[n.domain] || '#A3A3A3'));
   return new Float32Array(values);
 }
 
@@ -247,20 +247,33 @@ function hash(text) {
 
 function selectNode(index) {
   const node = viewNodes[index];
-  if (!node) return;
-  const neighbors = graph.getConnectedPointIndices?.([index]) || [];
-  const connectedLinks = graph.getConnectedLinkIndices?.([index]) || [];
+  if (!node || !graph) return;
+
+  const neighbors = graph.getNeighboringPointIndices?.(index) || [];
+  const neighborhood = [index, ...neighbors];
+  const connectedLinks = graph.getConnectedLinkIndices?.(neighborhood) || [];
+
   graph.setConfigPartial({
-    highlightedPointIndices: [index, ...neighbors],
-    outlinedPointIndices: [index],
-    highlightedLinkIndices: connectedLinks
+    focusedPointIndex: index,
+    focusedLinkIndex: undefined,
+    highlightedPointIndices: neighborhood,
+    outlinedPointIndices: undefined,
+    highlightedLinkIndices: connectedLinks,
+    linkGreyoutOpacity: .05
   });
   graph.zoomToPointByIndex?.(index);
   showInspector(node);
 }
 
 function clearSelection() {
-  graph?.setConfigPartial({ highlightedPointIndices: undefined, outlinedPointIndices: undefined, highlightedLinkIndices: undefined });
+  graph?.setConfigPartial({
+    focusedPointIndex: undefined,
+    focusedLinkIndex: undefined,
+    highlightedPointIndices: undefined,
+    outlinedPointIndices: undefined,
+    highlightedLinkIndices: undefined,
+    linkGreyoutOpacity: .025
+  });
   inspectorEl.classList.remove('open');
 }
 
@@ -288,16 +301,15 @@ function updateSearchResults(repos) {
 
 function focusNode(id) {
   const index = viewNodes.findIndex(n => n.id === id);
-  if (index < 0 || !graph) return;
-  selectNode(index);
+  if (index >= 0) selectNode(index);
 }
 
-function showTooltip(index, event) {
+function showTooltip(index) {
   const n = viewNodes[index];
   if (!n || !tooltipEl) return;
   tooltipEl.innerHTML = `<strong>${escapeHtml(n.label)}</strong><span>${escapeHtml(n.domain)}${n.language ? ` · ${escapeHtml(n.language)}` : ''}</span>`;
-  tooltipEl.style.left = `${Math.min(window.innerWidth - 220, event.clientX + 14)}px`;
-  tooltipEl.style.top = `${Math.min(window.innerHeight - 68, event.clientY + 14)}px`;
+  tooltipEl.style.left = `${Math.min(window.innerWidth - 220, pointerX + 14)}px`;
+  tooltipEl.style.top = `${Math.min(window.innerHeight - 68, pointerY + 14)}px`;
   tooltipEl.hidden = false;
 }
 
@@ -338,6 +350,7 @@ function scheduleFilter() {
   filterTimer = setTimeout(applyFilters, 100);
 }
 
+graphEl.addEventListener('pointermove', e => { pointerX = e.clientX; pointerY = e.clientY; });
 searchEl.addEventListener('input', scheduleFilter);
 [domainEl, languageEl, visibilityEl, forkEl, archiveEl].forEach(x => x.addEventListener('change', applyFilters));
 resultsEl.addEventListener('click', e => { const b = e.target.closest('[data-id]'); if (b) focusNode(b.dataset.id); });
@@ -350,8 +363,8 @@ el('legend').addEventListener('click', e => {
 el('fit-button').addEventListener('click', () => graph?.fitView?.());
 
 el('local-button').addEventListener('click', async () => {
-  try { await loadFromUrls('../out/nodes.csv', '../out/links.csv', 'private local graph'); }
-  catch { alert('Private CSVs were not found at ../out/. Run `python3 generate.py`, serve the repo root, then open /site/.'); }
+  try { await loadFromUrls('/private-data/nodes.csv', '/private-data/links.csv', 'private local graph'); }
+  catch { alert('Private CSVs were not found. Run `python3 generate.py` and `npm run dev`, then try again.'); }
 });
 
 el('file-input').addEventListener('change', async e => {
@@ -365,7 +378,7 @@ el('file-input').addEventListener('change', async e => {
 (async () => {
   try { await loadFromUrls('./data/nodes.csv', './data/links.csv', 'public GitHub snapshot'); }
   catch (error) {
-    loadingEl.textContent = 'No bundled graph found. Open CSVs or run the local generator.';
+    loadingEl.textContent = 'No bundled graph found. Open CSVs or generate a local graph.';
     console.error(error);
   }
 })();
