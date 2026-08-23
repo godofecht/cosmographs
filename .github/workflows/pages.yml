@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -73,6 +73,24 @@ jobs:
               ;;
           esac
 
+      - name: Publish build probe
+        if: always()
+        shell: bash
+        env:
+          PAGES_ENABLED: ${{ steps.pages.outputs.enabled }}
+          BUILD_STATUS: ${{ job.status }}
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git fetch origin ci-status
+          git worktree add /tmp/ci-status origin/ci-status
+          cat > /tmp/ci-status/ci-status.json <<EOF
+          {"sha":"${GITHUB_SHA}","run_id":"${GITHUB_RUN_ID}","build":"${BUILD_STATUS}","pages_enabled":"${PAGES_ENABLED:-unknown}","deploy":"pending"}
+          EOF
+          git -C /tmp/ci-status add ci-status.json
+          git -C /tmp/ci-status commit -m "Record build status ${GITHUB_RUN_ID}" || true
+          git -C /tmp/ci-status push origin HEAD:ci-status
+
   deploy:
     if: needs.build.outputs.pages_enabled == 'true'
     needs: build
@@ -87,3 +105,25 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Checkout for deployment probe
+        if: always()
+        uses: actions/checkout@v6
+
+      - name: Publish deployment probe
+        if: always()
+        shell: bash
+        env:
+          DEPLOY_STATUS: ${{ job.status }}
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git fetch origin ci-status
+          git worktree add /tmp/ci-status origin/ci-status
+          cat > /tmp/ci-status/ci-status.json <<EOF
+          {"sha":"${GITHUB_SHA}","run_id":"${GITHUB_RUN_ID}","build":"success","pages_enabled":"true","deploy":"${DEPLOY_STATUS}","page_url":"${PAGE_URL}"}
+          EOF
+          git -C /tmp/ci-status add ci-status.json
+          git -C /tmp/ci-status commit -m "Record deployment status ${GITHUB_RUN_ID}" || true
+          git -C /tmp/ci-status push origin HEAD:ci-status
