@@ -4,13 +4,7 @@ A fully self-hosted GPU graph of the GitHub repositories owned by `godofecht` pl
 
 The renderer is the MIT-licensed [`@cosmos.gl/graph`](https://github.com/cosmosgl/graph) engine that powers Cosmograph. The app bundles that engine at build time; it does not depend on Cosmograph's hosted application or CDN.
 
-The public GitHub Pages build contains **public repositories only**. Private repository metadata never needs to leave your machine: generate it locally and the same UI can load it from `out/` or directly from CSV files selected in the browser.
-
-## Install
-
-```sh
-npm install
-```
+The public GitHub Pages build contains **public repositories only**. Private repository metadata never needs to leave infrastructure you control: generate it locally, load the CSVs directly in the browser, or mount the generated `out/` directory into the Docker deployment.
 
 ## Private local graph
 
@@ -19,10 +13,25 @@ Authenticate once and generate the full graph:
 ```sh
 gh auth login
 python3 generate.py
+npm install
 npm run dev
 ```
 
 Open the local Vite URL and press **Load private local**. You can also press **Open CSVs** and choose `out/nodes.csv` plus `out/links.csv` directly. The browser does not upload those files anywhere.
+
+## Docker self-hosting
+
+Generate the full graph, build the image, and serve it on port 8080:
+
+```sh
+gh auth login
+python3 generate.py
+docker compose up --build -d
+```
+
+Then open `http://localhost:8080`. `compose.yml` mounts `./out` read-only as the served graph data, while `.dockerignore` prevents private repository metadata from ever being baked into the image itself.
+
+If you expose this Docker deployment beyond your own machine or private network, put authentication in front of it: the generated graph can contain private repository names, descriptions, URLs, languages, and other metadata.
 
 ## Public graph
 
