@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#09090b" />
+  <meta name="description" content="A GPU graph of godofecht and Flow GitHub repositories." />
+  <title>Repository Universe</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark"></span>
+        <div>
+          <strong>Repository Universe</strong>
+          <span id="source-label">loading public graph…</span>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button id="fit-button" class="ghost" type="button">Fit graph</button>
+        <button id="local-button" class="ghost" type="button">Load private local</button>
+        <label class="ghost file-label">Open CSVs<input id="file-input" type="file" accept=".csv,text/csv" multiple /></label>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <aside class="sidebar">
+        <label class="search-wrap">
+          <span>Search</span>
+          <input id="search" type="search" placeholder="repo, description, language…" autocomplete="off" />
+        </label>
+
+        <div id="search-results" class="search-results"></div>
+
+        <section class="filters">
+          <label>Domain<select id="domain-filter"><option value="">All domains</option></select></label>
+          <label>Language<select id="language-filter"><option value="">All languages</option></select></label>
+          <label>Visibility<select id="visibility-filter"><option value="">All</option><option value="public">Public</option><option value="private">Private</option></select></label>
+          <label class="check"><input id="fork-filter" type="checkbox" /> Hide forks</label>
+          <label class="check"><input id="archive-filter" type="checkbox" /> Hide archived</label>
+        </section>
+
+        <div class="stats">
+          <div><strong id="repo-count">—</strong><span>repos</span></div>
+          <div><strong id="link-count">—</strong><span>links</span></div>
+          <div><strong id="domain-count">—</strong><span>domains</span></div>
+        </div>
+
+        <div id="legend" class="legend"></div>
+        <p class="privacy">Private mode stays in this browser. Nothing is uploaded by this UI.</p>
+      </aside>
+
+      <section class="graph-shell">
+        <div id="graph"></div>
+        <div id="empty" class="empty" hidden>No repositories match these filters.</div>
+        <div id="loading" class="loading">Building graph…</div>
+      </section>
+
+      <aside id="inspector" class="inspector" aria-live="polite">
+        <div class="inspector-placeholder">
+          <span>SELECT A NODE</span>
+          <p>Click a repository to inspect it. Double-click its GitHub button to leave the graph.</p>
+        </div>
+      </aside>
+    </main>
+  </div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
