@@ -1,0 +1,17 @@
+{
+  "points": {
+    "pointIdBy": "id",
+    "pointColorBy": "color",
+    "pointSizeBy": "visual_size",
+    "pointLabelBy": "label",
+    "pointLabelWeightBy": "label_weight",
+    "pointIncludeColumns": ["*"]
+  },
+  "links": {
+    "linkSourceBy": "source",
+    "linkTargetsBy": ["target"],
+    "linkStrengthBy": "strength",
+    "linkWidthBy": "width",
+    "linkIncludeColumns": ["*"]
+  }
+}
