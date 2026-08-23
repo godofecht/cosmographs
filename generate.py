@@ -8,7 +8,6 @@ import math
 import os
 import re
 import subprocess
-import sys
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -17,6 +16,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 API = "https://api.github.com"
+DEFAULT_USER = "godofecht"
 DEFAULT_ORGS = ("flooooooooooow",)
 
 DOMAIN_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -31,17 +31,17 @@ DOMAIN_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 DOMAIN_COLORS = {
-    "Flow": "#7C3AED",
-    "Audio / DSP": "#06B6D4",
+    "Flow": "#8B5CF6",
+    "Audio / DSP": "#22D3EE",
     "Games / Graphics": "#F59E0B",
-    "AI / ML": "#EC4899",
-    "Research / Science": "#10B981",
-    "Web / Product": "#3B82F6",
-    "Systems / Tooling": "#64748B",
-    "Creative": "#EF4444",
+    "AI / ML": "#F472B6",
+    "Research / Science": "#34D399",
+    "Web / Product": "#60A5FA",
+    "Systems / Tooling": "#94A3B8",
+    "Creative": "#FB7185",
     "Other": "#A3A3A3",
     "Owner": "#FFFFFF",
-    "Domain": "#D4D4D8",
+    "Domain": "#E4E4E7",
 }
 
 GENERIC_TOKENS = {
@@ -52,28 +52,29 @@ GENERIC_TOKENS = {
 }
 
 
-def token_from_environment() -> str:
+def token_from_environment(required: bool = True) -> str:
     for key in ("GH_TOKEN", "GITHUB_TOKEN"):
         if os.environ.get(key):
             return os.environ[key].strip()
     try:
         return subprocess.check_output(["gh", "auth", "token"], text=True, stderr=subprocess.DEVNULL).strip()
     except (FileNotFoundError, subprocess.CalledProcessError):
-        raise SystemExit("No GitHub token found. Export GH_TOKEN/GITHUB_TOKEN or authenticate with `gh auth login`.")
+        if required:
+            raise SystemExit("No GitHub token found. Export GH_TOKEN/GITHUB_TOKEN or authenticate with `gh auth login`.")
+        return ""
 
 
 def api_get(token: str, path: str, params: dict[str, str | int] | None = None) -> Any:
     query = urllib.parse.urlencode(params or {})
     url = f"{API}{path}" + (f"?{query}" if query else "")
-    request = urllib.request.Request(
-        url,
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {token}",
-            "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "github-cosmograph-generator",
-        },
-    )
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "github-cosmograph-generator",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             return json.load(response)
@@ -145,18 +146,20 @@ def label_weight(size_kb: int) -> float:
     return round(min(1.0, 0.35 + math.log10(max(0, size_kb) + 1.0) / 8.0), 3)
 
 
-def fetch_repositories(token: str, orgs: Iterable[str], public_only: bool) -> list[dict[str, Any]]:
-    me = api_get(token, "/user")
-    login = me["login"]
-    owned = paged_get(
-        token,
-        "/user/repos",
-        {"affiliation": "owner", "sort": "updated", "direction": "desc"},
-    )
-    repos = {r["full_name"]: r for r in owned if r.get("owner", {}).get("login") == login}
+def fetch_repositories(token: str, user: str, orgs: Iterable[str], public_only: bool) -> list[dict[str, Any]]:
+    if public_only:
+        owned = paged_get(token, f"/users/{user}/repos", {"type": "owner", "sort": "updated", "direction": "desc"})
+        repos = {r["full_name"]: r for r in owned if r.get("owner", {}).get("login", "").lower() == user.lower()}
+    else:
+        me = api_get(token, "/user")
+        login = me["login"]
+        owned = paged_get(token, "/user/repos", {"affiliation": "owner", "sort": "updated", "direction": "desc"})
+        repos = {r["full_name"]: r for r in owned if r.get("owner", {}).get("login") == login}
+
     for org in orgs:
         for repo in paged_get(token, f"/orgs/{org}/repos", {"type": "all", "sort": "updated"}):
             repos[repo["full_name"]] = repo
+
     values = list(repos.values())
     if public_only:
         values = [r for r in values if not r.get("private", False)]
@@ -181,7 +184,7 @@ def build_graph(repos: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list
             "id": f"domain:{domain}", "label": domain, "kind": "domain", "owner": "",
             "domain": domain, "visibility": "n/a", "is_private": False, "is_fork": False,
             "archived": False, "language": "", "size_kb": 0, "visual_size": 12,
-            "label_weight": 1.0, "color": DOMAIN_COLORS.get("Domain", "#D4D4D8"), "url": "",
+            "label_weight": 1.0, "color": DOMAIN_COLORS["Domain"], "url": "",
             "updated_at": "", "description": "Inferred repository domain hub",
         })
 
@@ -234,7 +237,6 @@ def build_graph(repos: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list
         add_link(rid, f"owner:{repo['owner']['login']}", "owned-by", 0.45, 0.7)
         add_link(rid, f"domain:{repo_domain[repo['full_name']]}", "domain", 0.35, 0.55)
 
-    # Sparse repo-to-repo semantic links from repository names. Each repo gets at most four.
     candidates: dict[str, list[tuple[float, str]]] = defaultdict(list)
     for i, a in enumerate(repos):
         for b in repos[i + 1:]:
@@ -266,20 +268,22 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Build Cosmograph CSVs from GitHub repositories.")
+    parser = argparse.ArgumentParser(description="Build a Cosmograph-ready network from GitHub repositories.")
+    parser.add_argument("--user", default=DEFAULT_USER, help=f"GitHub user to include (default: {DEFAULT_USER}).")
     parser.add_argument("--org", action="append", dest="orgs", help="Additional GitHub org to include (repeatable).")
-    parser.add_argument("--public-only", action="store_true", help="Exclude private repositories from the generated local files.")
+    parser.add_argument("--public-only", action="store_true", help="Generate only public repositories; authentication is optional.")
     parser.add_argument("--out", type=Path, default=Path("out"), help="Output directory (default: out).")
     args = parser.parse_args()
 
-    token = token_from_environment()
+    token = token_from_environment(required=not args.public_only)
     orgs = tuple(dict.fromkeys([*DEFAULT_ORGS, *(args.orgs or [])]))
-    repos = fetch_repositories(token, orgs, args.public_only)
+    repos = fetch_repositories(token, args.user, orgs, args.public_only)
     nodes, links = build_graph(repos)
 
     write_csv(args.out / "nodes.csv", nodes)
     write_csv(args.out / "links.csv", links)
     metadata = {
+        "user": args.user,
         "repositories": len(repos),
         "nodes": len(nodes),
         "links": len(links),
