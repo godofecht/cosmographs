@@ -168,15 +168,7 @@ function renderGraph() {
       hoveredPointRingColor: '#FFFFFF',
       focusedPointRingColor: '#FFFFFF',
       enableDrag: true,
-      simulationLinkDistance: 5,
-      simulationLinkSpring: 1.1,
-      simulationRepulsion: 1.2,
-      simulationGravity: .04,
-      simulationFriction: .72,
-      simulationCluster: .16,
-      simulationCollision: .7,
-      simulationCollisionPadding: 1.2,
-      simulationDecay: 100000,
+      enableSimulation: false,
       transitionDuration: 250,
       attribution: 'GPU graph: <a href="https://github.com/cosmosgl/graph" target="_blank" rel="noreferrer">cosmos.gl</a>',
       onPointClick: (index) => selectNode(index),
@@ -189,15 +181,14 @@ function renderGraph() {
   graph.setPointPositions(buildPositions(viewNodes));
   graph.setPointColors(buildPointColors(viewNodes));
   graph.setPointSizes(new Float32Array(viewNodes.map(n => n.kind === 'repo' ? Math.max(2.2, n.visual_size * .72) : n.kind === 'owner' ? 12 : 9)));
-  graph.setPointClusters(buildClusters(viewNodes));
   graph.setLinks(new Float32Array(viewLinks.flatMap(l => [l.source_index, l.target_index])));
   graph.setLinkWidths(new Float32Array(viewLinks.map(l => Math.max(.35, l.width * .72))));
-  graph.render();
-  graph.unpause();
+  graph.render(0);
+  graph.pause();
 
   if (firstRender) {
     firstRender = false;
-    setTimeout(() => graph?.fitView?.(), 700);
+    setTimeout(() => graph?.fitView?.(), 100);
   }
 }
 
@@ -219,12 +210,6 @@ function buildPositions(nodes) {
     out.push(cx + Math.cos(angle) * radial, cy + Math.sin(angle) * radial);
   }
   return new Float32Array(out);
-}
-
-function buildClusters(nodes) {
-  const names = [...new Set(nodes.map(n => n.kind === 'owner' ? 'Owner' : n.domain))].sort();
-  const id = new Map(names.map((name, i) => [name, i]));
-  return nodes.map(n => id.get(n.kind === 'owner' ? 'Owner' : n.domain) ?? 0);
 }
 
 function buildPointColors(nodes) {
@@ -261,7 +246,8 @@ function selectNode(index) {
     highlightedLinkIndices: connectedLinks,
     linkGreyoutOpacity: .05
   });
-  graph.zoomToPointByIndex?.(index);
+  graph.zoomToPointByIndex?.(index, 700, 3, true, false);
+  graph.pause();
   showInspector(node);
 }
 
