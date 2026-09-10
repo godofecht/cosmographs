@@ -1,5 +1,9 @@
 # Repository Universe
 
+![Repository Universe: every public repo in the account, coloured by domain and joined where they relate](docs/screenshot.jpg)
+
+[Open it](https://godofecht.github.io/cosmographs/)
+
 A fully self-hosted GPU graph of the GitHub repositories owned by `godofecht` plus the `flooooooooooow` organization.
 
 The renderer is the MIT-licensed [`@cosmos.gl/graph`](https://github.com/cosmosgl/graph) engine that powers Cosmograph. The app bundles that engine at build time; it does not depend on Cosmograph's hosted application or CDN.
