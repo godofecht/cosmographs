@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host",
-    "build": "vite build"
+    "build": "vite build",
+    "test": "node --test tests/layout.test.mjs"
   },
   "dependencies": {
     "@cosmos.gl/graph": "3.4.1"
