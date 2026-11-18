@@ -1,4 +1,5 @@
 import { Graph } from '@cosmos.gl/graph';
+import { buildDomainCenters, buildPositions } from './layout.js';
 
 const DOMAIN_COLORS = {
   'Flow': '#8B5CF6', 'Audio / DSP': '#22D3EE', 'Games / Graphics': '#F59E0B',
@@ -23,6 +24,7 @@ const tooltipEl = el('tooltip');
 
 let graph;
 let allNodes = [];
+let domainCenters = new Map();
 let allLinks = [];
 let viewNodes = [];
 let viewLinks = [];
@@ -88,6 +90,7 @@ async function loadFromUrls(nodesUrl, linksUrl, label) {
 
 function setData(nodes, links, label) {
   allNodes = nodes;
+  domainCenters = buildDomainCenters(nodes);
   allLinks = links;
   sourceName = label;
   firstRender = true;
@@ -178,7 +181,7 @@ function renderGraph() {
     });
   }
 
-  graph.setPointPositions(buildPositions(viewNodes));
+  graph.setPointPositions(buildPositions(viewNodes, domainCenters));
   graph.setPointColors(buildPointColors(viewNodes));
   graph.setPointSizes(new Float32Array(viewNodes.map(n => n.kind === 'repo' ? Math.max(2.2, n.visual_size * .72) : n.kind === 'owner' ? 12 : 9)));
   graph.setLinks(new Float32Array(viewLinks.flatMap(l => [l.source_index, l.target_index])));
@@ -192,26 +195,6 @@ function renderGraph() {
   }
 }
 
-function buildPositions(nodes) {
-  const domains = [...new Set(nodes.map(n => n.kind === 'owner' ? 'Owner' : n.domain))].sort();
-  const centers = new Map(domains.map((domain, i) => {
-    const angle = (i / Math.max(1, domains.length)) * Math.PI * 2;
-    const radius = domains.length > 1 ? 900 : 0;
-    return [domain, [2048 + Math.cos(angle) * radius, 2048 + Math.sin(angle) * radius]];
-  }));
-
-  const out = [];
-  for (const n of nodes) {
-    const key = n.kind === 'owner' ? 'Owner' : n.domain;
-    const [cx, cy] = centers.get(key) || [2048, 2048];
-    const seed = hash(n.id);
-    const angle = ((seed % 10000) / 10000) * Math.PI * 2;
-    const radial = n.kind === 'repo' ? 40 + ((seed >>> 8) % 280) : 0;
-    out.push(cx + Math.cos(angle) * radial, cy + Math.sin(angle) * radial);
-  }
-  return new Float32Array(out);
-}
-
 function buildPointColors(nodes) {
   const values = [];
   for (const n of nodes) values.push(...hexToRgba(n.color || DOMAIN_COLORS[n.domain] || '#A3A3A3'));
@@ -222,12 +205,6 @@ function hexToRgba(hex) {
   const clean = hex.replace('#', '');
   const value = Number.parseInt(clean.length === 3 ? clean.split('').map(c => c + c).join('') : clean.slice(0, 6), 16);
   return [((value >> 16) & 255) / 255, ((value >> 8) & 255) / 255, (value & 255) / 255, 1];
-}
-
-function hash(text) {
-  let h = 2166136261;
-  for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 16777619); }
-  return h >>> 0;
 }
 
 function selectNode(index) {
@@ -281,7 +258,7 @@ function updateSearchResults(repos) {
   const q = searchEl.value.trim();
   if (!q) { resultsEl.innerHTML = ''; return; }
   resultsEl.innerHTML = repos.slice(0, 8).map(n =>
-    `<button class="search-result" data-id="${escapeAttr(n.id)}"><strong>${escapeHtml(n.label)}</strong><span>${escapeHtml(n.domain)} · ${escapeHtml(n.language || '—')}</span></button>`
+    `<button class="search-result" data-id="${escapeAttr(n.id)}"><strong>${escapeHtml(n.label)}</strong><span>${escapeHtml(n.domain)} · ${escapeHtml(n.language || '-')}</span></button>`
   ).join('');
 }
 
@@ -307,18 +284,18 @@ function showInspector(n) {
   if (!n) return;
   inspectorEl.classList.add('open');
   const isRepo = n.kind === 'repo';
-  const updated = n.updated_at ? new Date(n.updated_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '—';
+  const updated = n.updated_at ? new Date(n.updated_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '-';
   inspectorEl.innerHTML = `
     <div class="eyebrow">${escapeHtml(n.kind.toUpperCase())}</div>
     <h2>${escapeHtml(n.label)}</h2>
     <div class="owner">${escapeHtml(n.owner || n.domain || '')}</div>
-    <span class="badge">${escapeHtml(n.domain || '—')}</span>
+    <span class="badge">${escapeHtml(n.domain || '-')}</span>
     <p class="description">${escapeHtml(n.description || (isRepo ? 'No description.' : 'Graph hub.'))}</p>
     <div class="meta">
-      <div class="meta-row"><span>Language</span><span>${escapeHtml(n.language || '—')}</span></div>
-      <div class="meta-row"><span>Visibility</span><span>${escapeHtml(n.visibility || '—')}</span></div>
-      <div class="meta-row"><span>Size</span><span>${isRepo ? `${Number(n.size_kb || 0).toLocaleString()} KB` : '—'}</span></div>
-      <div class="meta-row"><span>Fork</span><span>${isRepo ? (n.is_fork ? 'yes' : 'no') : '—'}</span></div>
+      <div class="meta-row"><span>Language</span><span>${escapeHtml(n.language || '-')}</span></div>
+      <div class="meta-row"><span>Visibility</span><span>${escapeHtml(n.visibility || '-')}</span></div>
+      <div class="meta-row"><span>Size</span><span>${isRepo ? `${Number(n.size_kb || 0).toLocaleString()} KB` : '-'}</span></div>
+      <div class="meta-row"><span>Fork</span><span>${isRepo ? (n.is_fork ? 'yes' : 'no') : '-'}</span></div>
       <div class="meta-row"><span>Updated</span><span>${escapeHtml(updated)}</span></div>
       <div class="meta-row"><span>Source</span><span>${escapeHtml(sourceName)}</span></div>
     </div>
